@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm build",
+  "outputDirectory": "dist",
+  "functions": { "api/ws.ts": { "maxDuration": 300, "memory": 1024, "regions": ["bom1"] } },
+  "rewrites": [
+    { "source": "/api/socket.io/:path*", "destination": "/api/ws" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}
