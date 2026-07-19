@@ -8,7 +8,11 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api/socket.io': { target: 'http://127.0.0.1:5174', ws: true },
+      '/api/ws/socket.io': {
+        target: 'http://127.0.0.1:5174',
+        ws: true,
+        rewrite: (path) => path.replace(/^\/api\/ws/, ''),
+      },
     },
   },
   test: { environment: 'jsdom', setupFiles: './src/test/setup.ts', exclude: ['e2e/**', 'node_modules/**'] },

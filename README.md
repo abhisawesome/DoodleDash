@@ -72,7 +72,7 @@ This starts:
 
 - Vite frontend: `http://localhost:5173`
 - Realtime server: `http://127.0.0.1:5174`
-- WebSocket proxy: `/api/socket.io` from Vite to port 5174
+- WebSocket proxy: `/api/ws/socket.io` from Vite to port 5174
 
 Only run one copy of `pnpm dev`. If a port is already occupied, stop the previous process with `Ctrl+C` before restarting.
 
@@ -149,7 +149,7 @@ DoodleDash can run on any platform that supports a Node.js HTTP server and WebSo
 
 1. Build the frontend with `pnpm build` and serve the `dist` directory as a single-page application.
 2. Run `api/ws.ts` behind a Node-compatible server or adapt `server/local.ts` for the platform's assigned `PORT`.
-3. Route `/api/socket.io` to the realtime process with WebSocket upgrades enabled.
+3. Route `/api/ws/socket.io` to the realtime process with WebSocket upgrades enabled. The local Vite proxy removes the `/api/ws` function prefix before forwarding to Socket.IO.
 4. Set all production environment variables on the hosting platform.
 5. If frontend and realtime services use different domains, set `VITE_SOCKET_URL` to the realtime service's HTTPS origin and configure allowed CORS origins in `api/ws.ts`.
 6. Use TLS in production: the website must use `https://` and WebSockets must use `wss://`.

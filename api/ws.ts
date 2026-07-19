@@ -42,7 +42,7 @@ async function persist(room: string, doc: Y.Doc) {
 
 const httpServer = createServer((_, response) => { response.writeHead(200); response.end('DoodleDash realtime server') })
 const io = new Server(httpServer, {
-  path: '/api/socket.io', transports: ['websocket'], serveClient: false,
+  path: '/socket.io', transports: ['websocket'], serveClient: false,
   cors: { origin: process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : true },
   maxHttpBufferSize: 1e6,
 })
