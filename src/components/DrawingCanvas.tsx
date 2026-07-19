@@ -15,6 +15,41 @@ export function DrawingCanvas({ strokes, canDraw, onStroke, onUndo, onClear }: P
   const [eraser, setEraser] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
+  useEffect(() => {
+    if (!canDraw) { setExpanded(false); return }
+    if (window.matchMedia('(max-width: 767px)').matches) setExpanded(true)
+  }, [canDraw])
+
+  useEffect(() => {
+    if (!expanded) return
+    const scrollY = window.scrollY
+    const root = document.documentElement
+    const previousOverflow = document.body.style.overflow
+    const previousOverscroll = document.body.style.overscrollBehavior
+    const previousPosition = document.body.style.position
+    const previousTop = document.body.style.top
+    const previousWidth = document.body.style.width
+    const previousRootOverflow = root.style.overflow
+    const previousRootOverscroll = root.style.overscrollBehavior
+    root.style.overflow = 'hidden'
+    root.style.overscrollBehavior = 'none'
+    document.body.style.overflow = 'hidden'
+    document.body.style.overscrollBehavior = 'none'
+    document.body.style.position = 'fixed'
+    document.body.style.top = `-${scrollY}px`
+    document.body.style.width = '100%'
+    return () => {
+      root.style.overflow = previousRootOverflow
+      root.style.overscrollBehavior = previousRootOverscroll
+      document.body.style.overflow = previousOverflow
+      document.body.style.overscrollBehavior = previousOverscroll
+      document.body.style.position = previousPosition
+      document.body.style.top = previousTop
+      document.body.style.width = previousWidth
+      window.scrollTo(0, scrollY)
+    }
+  }, [expanded])
+
   const paint = () => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -57,9 +92,9 @@ export function DrawingCanvas({ strokes, canDraw, onStroke, onUndo, onClear }: P
   }
   const end = () => { if (active.current?.points.length) onStroke(active.current); active.current = null }
 
-  return <div className={expanded ? 'fixed inset-0 z-50 flex flex-col gap-2 overflow-hidden bg-violet-100 p-2' : 'space-y-3'}>
+  return <div className={expanded ? 'fixed inset-0 z-50 flex h-[100dvh] max-h-[100dvh] flex-col gap-2 overflow-hidden overscroll-none bg-violet-100 p-2' : 'space-y-3'}>
     <div className={`canvas-grid relative w-full flex-1 overflow-hidden rounded-2xl border-4 border-white bg-white shadow-pop ${expanded ? 'min-h-0' : 'h-[58dvh] min-h-[380px] md:h-auto md:min-h-0 md:aspect-[4/3]'}`}>
-      <canvas ref={canvasRef} aria-label={canDraw ? 'Drawing canvas' : 'Current drawing'} className={`h-full w-full touch-none ${canDraw ? 'cursor-crosshair' : 'cursor-default'}`} onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end} />
+      <canvas ref={canvasRef} aria-label={canDraw ? 'Drawing canvas' : 'Current drawing'} className={`h-full w-full touch-none select-none overscroll-contain ${canDraw ? 'cursor-crosshair' : 'cursor-default'}`} onContextMenu={(event) => event.preventDefault()} onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end} />
       <Button size="icon" variant="outline" className="absolute right-3 top-3 bg-white/95" aria-label={expanded ? 'Exit expanded canvas' : 'Expand canvas'} onClick={() => setExpanded(!expanded)}>{expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}</Button>
       {!canDraw && <span className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-slate-900/70 px-3 py-1 text-xs font-bold text-white">Watching</span>}
     </div>

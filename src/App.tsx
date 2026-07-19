@@ -23,7 +23,7 @@ function Home() {
       <Button size="lg" className="w-full" disabled={!cleanName(name)} onClick={() => go(makeRoomCode())}><Play /> Create a room</Button>
       <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-slate-400"><span className="h-px flex-1 bg-slate-200" />{sharedRoom ? `Join room ${sharedRoom}` : 'or join friends'}<span className="h-px flex-1 bg-slate-200" /></div>
       <div className="flex gap-2"><Input aria-label="Room code" maxLength={6} className="uppercase" placeholder="K7MX2Q" value={code} onChange={(e) => setCode(e.target.value.replace(/[^a-z0-9]/gi, ''))} onKeyDown={(e) => e.key === 'Enter' && code.length === 6 && go(code)} /><Button variant="secondary" disabled={code.length !== 6 || !cleanName(name)} onClick={() => go(code)}><Users /> Join</Button></div>
-    </div><p className="mt-5 text-sm text-violet-900/60">No account needed · Up to 8 players · Works on mobile</p>
+    </div><p className="mt-5 text-sm text-violet-900/60">No account needed · Up to 20 players · Works on mobile</p>
   </section></main>
 }
 

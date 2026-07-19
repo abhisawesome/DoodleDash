@@ -47,8 +47,20 @@ const io = new Server(httpServer, {
   maxHttpBufferSize: 1e6,
 })
 
+let nativeRedisUrl: string | undefined
 if (process.env.REDIS_URL) {
-  const publisher = new Redis(process.env.REDIS_URL, {
+  try {
+    const parsed = new URL(process.env.REDIS_URL)
+    if (parsed.protocol !== 'rediss:' || !parsed.password) {
+      console.warn('REDIS_URL must use rediss:// and include a password after the username; continuing without Redis pub/sub')
+    } else nativeRedisUrl = process.env.REDIS_URL
+  } catch {
+    console.warn('REDIS_URL is not a valid URL; continuing without Redis pub/sub')
+  }
+}
+
+if (nativeRedisUrl) {
+  const publisher = new Redis(nativeRedisUrl, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
     connectTimeout: 3_000,
@@ -60,10 +72,15 @@ if (process.env.REDIS_URL) {
   subscriber.on('error', (error) => console.warn('Redis subscriber connection error:', error.message))
   publisher.on('connect', () => console.info('Redis publisher connected'))
   subscriber.on('connect', () => console.info('Redis subscriber connected'))
-  io.adapter(createAdapter(publisher, subscriber))
-  void Promise.all([publisher.connect(), subscriber.connect()]).catch((error: Error) => {
-    console.warn('Redis pub/sub unavailable; realtime will retry:', error.message)
-  })
+  void Promise.all([publisher.connect(), subscriber.connect()])
+    .then(() => {
+      io.adapter(createAdapter(publisher, subscriber))
+      console.info('Redis pub/sub adapter enabled')
+    })
+    .catch((error: Error) => {
+      console.warn('Redis pub/sub unavailable; continuing with single-instance realtime:', error.message)
+      publisher.disconnect(); subscriber.disconnect()
+    })
 }
 
 io.use((socket, next) => {

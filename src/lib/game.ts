@@ -1,4 +1,4 @@
-export const MAX_PLAYERS = 8
+export const MAX_PLAYERS = 20
 export const RECONNECT_GRACE_MS = 15_000
 
 export type GamePhase = 'lobby' | 'choosing' | 'drawing' | 'turn-results' | 'game-results'

@@ -5,6 +5,7 @@
 
 :root { --background: 263 80% 96%; --foreground: 259 40% 16%; --primary: 263 70% 50%; --primary-foreground: 0 0% 100%; --secondary: 45 95% 62%; --secondary-foreground: 30 80% 15%; --muted: 258 30% 94%; --muted-foreground: 258 12% 44%; --border: 258 40% 84%; --input: 258 40% 84%; --ring: 263 70% 50%; --radius: 1rem; font-family: 'Nunito', system-ui, sans-serif; color: hsl(var(--foreground)); background: hsl(var(--background)); }
 body { min-width: 320px; min-height: 100vh; background-image: radial-gradient(circle at 15% 10%, rgba(250,204,21,.23), transparent 22%), radial-gradient(circle at 90% 20%, rgba(168,85,247,.20), transparent 27%), linear-gradient(135deg, #faf5ff, #ede9fe 50%, #fef3c7); }
+canvas { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .brand, h1, h2 { font-family: 'Fredoka', 'Nunito', sans-serif; }
 .canvas-grid { background-image: linear-gradient(#f8fafc 1px, transparent 1px), linear-gradient(90deg,#f8fafc 1px,transparent 1px); background-size: 24px 24px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }

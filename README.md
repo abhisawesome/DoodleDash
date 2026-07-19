@@ -1,6 +1,6 @@
 # DoodleDash
 
-DoodleDash is an account-free, realtime drawing and guessing party game for up to eight players. It is built with Vite, React, TypeScript, Yjs, Socket.IO, Tailwind CSS, and shadcn/ui conventions.
+DoodleDash is an account-free, realtime drawing and guessing party game for up to 20 players. It is built with Vite, React, TypeScript, Yjs, Socket.IO, Tailwind CSS, and shadcn/ui conventions.
 
 ## Features
 
