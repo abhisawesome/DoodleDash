@@ -8,10 +8,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api/ws/socket.io': {
+      '/api/ws': {
         target: 'http://127.0.0.1:5174',
         ws: true,
-        rewrite: (path) => path.replace(/^\/api\/ws/, ''),
       },
     },
   },

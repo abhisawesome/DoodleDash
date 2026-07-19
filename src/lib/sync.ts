@@ -23,7 +23,7 @@ export class RoomSync {
 
   constructor(roomCode: string, identity: { id: string; name: string; avatar: number }) {
     const url = import.meta.env.VITE_SOCKET_URL || window.location.origin
-    this.socket = io(url, { path: '/api/ws/socket.io', transports: ['websocket'], auth: { roomCode, ...identity } })
+    this.socket = io(url, { path: '/api/ws', transports: ['websocket'], auth: { roomCode, ...identity } })
     this.doc.on('update', (update: Uint8Array) => {
       if (!this.remote) this.socket.emit('y-update', bytesToBase64(update))
     })
