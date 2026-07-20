@@ -16,7 +16,7 @@ const blockedWords = /\b(fuck|shit|bitch|cunt)\b/gi
 
 function Home() {
   const navigate = useNavigate(); const sharedRoom = new URLSearchParams(location.search).get('room')?.toUpperCase() || ''; const [name, setName] = useState(localStorage.getItem('doodledash-name') || ''); const [code, setCode] = useState(sharedRoom)
-  const go = (roomCode: string) => { const safe = cleanName(name); if (!safe) return; localStorage.setItem('doodledash-name', safe); navigate(`/room/${roomCode.toUpperCase()}?name=${encodeURIComponent(safe)}`) }
+  const go = (roomCode: string, creating = false) => { const safe = cleanName(name); if (!safe) return; localStorage.setItem('doodledash-name', safe); navigate(`/room/${roomCode.toUpperCase()}?name=${encodeURIComponent(safe)}${creating ? '&creator=1' : ''}`) }
   return <main className="flex min-h-screen items-center justify-center p-5"><section className="w-full max-w-lg text-center">
     <div className="mb-8"><div className="mx-auto mb-4 grid size-20 rotate-3 place-items-center rounded-3xl bg-amber-300 text-4xl shadow-pop"><Palette /></div><h1 className="brand text-5xl font-black tracking-tight text-violet-700 sm:text-6xl">DoodleDash</h1><p className="mt-3 text-lg font-medium text-violet-950/70">Draw it. Guess it. Laugh about it.</p></div>
     <div className="space-y-4 rounded-3xl border-4 border-white bg-white/90 p-6 text-left shadow-pop"><label className="font-bold" htmlFor="name">Your nickname</label><Input id="name" autoFocus maxLength={18} placeholder="PicassoPanda" value={name} onChange={(e) => setName(e.target.value)} />
@@ -24,7 +24,7 @@ function Home() {
         <p className="text-center text-sm font-bold text-violet-700">You’ve been invited to room <span className="font-black tracking-widest">{sharedRoom}</span></p>
         <Button size="lg" variant="secondary" className="w-full" disabled={sharedRoom.length !== 6 || !cleanName(name)} onClick={() => go(sharedRoom)}><Users /> Join room</Button>
       </> : <>
-        <Button size="lg" className="w-full" disabled={!cleanName(name)} onClick={() => go(makeRoomCode())}><Play /> Create a room</Button>
+        <Button size="lg" className="w-full" disabled={!cleanName(name)} onClick={() => go(makeRoomCode(), true)}><Play /> Create a room</Button>
         <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-slate-400"><span className="h-px flex-1 bg-slate-200" />or join friends<span className="h-px flex-1 bg-slate-200" /></div>
         <div className="flex gap-2"><Input aria-label="Room code" maxLength={6} className="uppercase" placeholder="K7MX2Q" value={code} onChange={(e) => setCode(e.target.value.replace(/[^a-z0-9]/gi, ''))} onKeyDown={(e) => e.key === 'Enter' && code.length === 6 && go(code)} /><Button variant="secondary" disabled={code.length !== 6 || !cleanName(name)} onClick={() => go(code)}><Users /> Join</Button></div>
       </>}
@@ -45,6 +45,7 @@ function useYState(sync: RoomSync) {
 
 function Room() {
   const { code = '' } = useParams(); const params = new URLSearchParams(location.search); const name = cleanName(params.get('name') || localStorage.getItem('doodledash-name') || '')
+  const isCreator = params.get('creator') === '1'
   const me = useMemo(() => playerId(), []); const avatar = useMemo(() => Math.floor(Math.random() * AVATARS.length), [])
   const sync = useMemo(() => new RoomSync(code, { id: me, name, avatar }), [code, me, name, avatar]); const state = useYState(sync)
   const leaveTimers = useRef(new Map<string, number>())
@@ -58,8 +59,8 @@ function Room() {
       const latest = sync.state.toJSON() as GameState
       if (!latest.players?.length) return
       const players = latest.players.map((player) => ({ ...player, connected: online.has(player.id) }))
-      const hostOnline = online.has(latest.hostId)
-      const nextHost = hostOnline ? latest.hostId : players.find((player) => player.connected)?.id || latest.hostId
+      const creatorId = latest.creatorId || latest.hostId
+      const nextHost = online.has(creatorId) ? creatorId : online.has(latest.hostId) ? latest.hostId : players.find((player) => player.connected)?.id || latest.hostId
       set({ players, hostId: nextHost })
     }
     sync.socket.on('presence', presence)
@@ -80,7 +81,9 @@ function Room() {
         const next = sync.state.toJSON() as GameState; const leaver = next.players?.find((p) => p.id === id)
         if (!leaver || leaver.connected) return
         const remaining = next.players.filter((p) => p.id !== id)
-        set({ players: remaining, hostId: next.hostId === id ? remaining[0]?.id || '' : next.hostId, ...(next.artistId === id ? { turnEndsAt: Date.now() } : {}) })
+        const connectedPlayers = remaining.filter((player) => player.connected)
+        const nextHost = connectedPlayers.some((player) => player.id === next.creatorId) ? next.creatorId! : connectedPlayers[0]?.id || ''
+        set({ players: remaining, hostId: next.hostId === id ? nextHost : next.hostId, ...(next.artistId === id ? { turnEndsAt: Date.now() } : {}) })
       }, 15_000))
     }
     sync.socket.on('peer-joined', joined); sync.socket.on('peer-left', left)
@@ -103,13 +106,16 @@ function Room() {
     const players = state.players || []
     if (!state.roomCode) {
       const first: Player = { id: me, name, avatar, score: 0, connected: true, guessed: false, spectator: false }
-      set({ roomCode: code, hostId: me, phase: 'lobby', players: [first], settings: DEFAULT_SETTINGS, round: 1, artistIndex: -1, choices: [], maskedWord: '', strokes: [], chat: [] })
+      set({ roomCode: code, hostId: me, creatorId: isCreator ? me : undefined, phase: 'lobby', players: [first], settings: DEFAULT_SETTINGS, round: 1, artistIndex: -1, choices: [], maskedWord: '', strokes: [], chat: [] })
       queueMicrotask(() => sync.socket.emit('client-ready'))
-    } else if (!players.some((p) => p.id === me) && players.length < MAX_PLAYERS) {
-      const duplicate = players.some((p) => p.name.toLowerCase() === name.toLowerCase())
-      const finalName = duplicate ? `${name.slice(0, 14)}-${String(Math.floor(Math.random() * 90 + 10))}` : name
-      set({ players: [...players, { id: me, name: finalName, avatar, score: 0, connected: true, guessed: false, spectator: state.phase !== 'lobby' }] })
-      queueMicrotask(() => sync.socket.emit('client-ready'))
+    } else {
+      if (isCreator && !state.creatorId) set({ creatorId: me, hostId: me })
+      if (!players.some((p) => p.id === me) && players.length < MAX_PLAYERS) {
+        const duplicate = players.some((p) => p.name.toLowerCase() === name.toLowerCase())
+        const finalName = duplicate ? `${name.slice(0, 14)}-${String(Math.floor(Math.random() * 90 + 10))}` : name
+        set({ players: [...players, { id: me, name: finalName, avatar, score: 0, connected: true, guessed: false, spectator: state.phase !== 'lobby' }] })
+        queueMicrotask(() => sync.socket.emit('client-ready'))
+      }
     }
   }, [connected, synced, state.roomCode])
 

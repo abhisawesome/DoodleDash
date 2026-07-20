@@ -8,7 +8,7 @@ export type Stroke = { id: string; color: string; width: number; points: StrokeP
 export type ChatMessage = { id: string; playerId?: string; playerName?: string; text: string; kind: 'chat' | 'system' | 'correct'; at: number }
 export type Settings = { rounds: number; turnSeconds: number; customWords: string[]; customOnly: boolean; hints: boolean }
 export type GameState = {
-  roomCode: string; hostId: string; phase: GamePhase; players: Player[]; settings: Settings;
+  roomCode: string; hostId: string; creatorId?: string; phase: GamePhase; players: Player[]; settings: Settings;
   round: number; artistIndex: number; artistId?: string; word?: string; choices: string[];
   maskedWord: string; turnEndsAt?: number; strokes: Stroke[]; chat: ChatMessage[];
 }
