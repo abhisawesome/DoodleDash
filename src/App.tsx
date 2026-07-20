@@ -59,24 +59,31 @@ function Room() {
       const online = new Set(onlineIds)
       const latest = sync.state.toJSON() as GameState
       if (!latest.players?.length) return
-      const players = latest.players.map((player) => ({ ...player, connected: online.has(player.id) }))
       const creatorId = latest.creatorId || latest.hostId
+      const presenceOwner = online.has(creatorId) ? creatorId : online.has(latest.hostId) ? latest.hostId : latest.players.find((player) => online.has(player.id))?.id
+      // Only one deterministic client may rewrite presence. Multiple clients writing
+      // the whole player array could otherwise erase a player who just joined.
+      if (presenceOwner !== me) return
+      const players = latest.players.map((player) => ({ ...player, connected: online.has(player.id) }))
       const nextHost = online.has(creatorId) ? creatorId : online.has(latest.hostId) ? latest.hostId : players.find((player) => player.connected)?.id || latest.hostId
       set({ players, hostId: nextHost })
     }
     sync.socket.on('presence', presence)
     return () => { sync.socket.off('presence', presence) }
-  }, [sync])
+  }, [sync, me])
 
   useEffect(() => { const on = () => setConnected(true), off = () => { setConnected(false); setSynced(false) }, ready = () => setSynced(true); sync.socket.on('connect', on); sync.socket.on('disconnect', off); sync.socket.on('sync-complete', ready); if (sync.socket.connected) on(); if (sync.synced) ready(); return () => { sync.socket.off('connect', on); sync.socket.off('disconnect', off); sync.socket.off('sync-complete', ready); sync.destroy() } }, [sync])
   useEffect(() => {
     const joined = (id: string) => {
       const timer = leaveTimers.current.get(id); if (timer) clearTimeout(timer)
       const latest = sync.state.toJSON() as GameState
+      if (latest.hostId !== me) return
       if (latest.players?.some((p) => p.id === id && !p.connected)) set({ players: latest.players.map((p) => p.id === id ? { ...p, connected: true } : p) })
     }
     const left = (id: string) => {
       const latest = sync.state.toJSON() as GameState
+      const owner = latest.hostId === id ? latest.players?.find((player) => player.id !== id && player.connected)?.id : latest.hostId
+      if (owner !== me) return
       if (latest.players) set({ players: latest.players.map((p) => p.id === id ? { ...p, connected: false } : p) })
       leaveTimers.current.set(id, window.setTimeout(() => {
         const next = sync.state.toJSON() as GameState; const leaver = next.players?.find((p) => p.id === id)
@@ -89,7 +96,7 @@ function Room() {
     }
     sync.socket.on('peer-joined', joined); sync.socket.on('peer-left', left)
     return () => { sync.socket.off('peer-joined', joined); sync.socket.off('peer-left', left); leaveTimers.current.forEach(clearTimeout) }
-  }, [sync])
+  }, [sync, me])
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer) }, [])
   useEffect(() => {
     if (muted || !state.phase || state.phase === lastPhase.current) return
@@ -118,7 +125,7 @@ function Room() {
         queueMicrotask(() => sync.socket.emit('client-ready'))
       }
     }
-  }, [connected, synced, state.roomCode])
+  }, [connected, synced, state.roomCode, state.players, state.creatorId, state.phase, code, me, name, avatar, isCreator])
 
   const players = state.players || []; const settings = state.settings || DEFAULT_SETTINGS; const current = players.find((p) => p.id === me); const isHost = state.hostId === me; const isArtist = state.artistId === me
   useEffect(() => {
@@ -259,12 +266,12 @@ function Room() {
     </Dialog.Portal>
   </Dialog.Root>
 
-  return <main className="min-h-screen p-3 md:p-5"><header className="mx-auto mb-4 flex max-w-7xl items-center justify-between gap-3"><a href="/" className="brand text-2xl font-black text-violet-700 sm:text-3xl">DoodleDash</a><div className="flex items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-bold ${connected ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{connected ? '● Live' : 'Reconnecting…'}</span><Button size="sm" variant="outline" aria-label="Copy room invite link" onClick={copy}><Copy className="size-4" /> {copied ? 'Copied!' : code}</Button><Button size="icon" variant="ghost" aria-label={muted ? 'Unmute sounds' : 'Mute sounds'} onClick={() => setMuted(!muted)}>{muted ? <VolumeX /> : <Volume2 />}</Button></div></header>
+  return <main className="min-h-screen p-3 md:p-5"><header className="mx-auto mb-4 flex max-w-7xl flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-3"><a href="/" className="brand text-2xl font-black text-violet-700 sm:text-3xl">DoodleDash</a><div className="order-3 flex w-full items-center justify-center sm:order-none sm:w-auto"><span className="flex max-w-full items-center gap-2 rounded-full bg-white px-3 py-1.5 text-sm font-bold text-violet-800 shadow"><span aria-hidden="true">{current ? AVATARS[current.avatar % AVATARS.length] : '👤'}</span><span className="max-w-40 truncate">{current?.name || name}</span><span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide">You</span></span></div><div className="flex items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-bold ${connected ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{connected ? '● Live' : 'Reconnecting…'}</span><Button size="sm" variant="outline" aria-label="Copy room invite link" onClick={copy}><Copy className="size-4" /> {copied ? 'Copied!' : code}</Button><Button size="icon" variant="ghost" aria-label={muted ? 'Unmute sounds' : 'Mute sounds'} onClick={() => setMuted(!muted)}>{muted ? <VolumeX /> : <Volume2 />}</Button></div></header>
     {choosingModal}
     {winnerModal}
     {joinedPlayerModal}
     <div className="mx-auto grid max-w-[1600px] gap-4 lg:grid-cols-[200px_minmax(0,1fr)_280px]">
-      <aside className="order-2 rounded-3xl bg-white/90 p-4 shadow-pop lg:order-1"><h2 className="mb-3 flex items-center gap-2 font-black"><Users className="size-5" /> Players <span className="ml-auto text-sm text-slate-400">{players.length}/{MAX_PLAYERS}</span></h2><ol className="space-y-2">{[...players].sort((a,b) => b.score-a.score).map((p, i) => <li key={p.id} className={`flex items-center gap-2 rounded-xl p-2 ${p.id === state.artistId ? 'bg-amber-100' : 'bg-violet-50'}`}><span className="grid size-9 place-items-center rounded-full bg-white text-xl">{AVATARS[p.avatar % AVATARS.length]}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{p.name} {p.id === state.hostId && <Crown className="inline size-3 text-amber-500" />}</span><span className="text-xs font-bold text-violet-600">{p.score} pts</span></span>{p.spectator && <Eye className="size-4 text-slate-400" />}{p.guessed && <span title="Guessed">✓</span>}{isHost && p.id !== me && state.phase === 'lobby' && <button aria-label={`Kick ${p.name}`} className="rounded p-1 text-slate-400 hover:bg-rose-100 hover:text-rose-600" onClick={() => set({ players: players.filter((item) => item.id !== p.id) })}><X className="size-4" /></button>}<span className="sr-only">Rank {i + 1}</span></li>)}</ol></aside>
+      <aside className="order-2 rounded-3xl bg-white/90 p-4 shadow-pop lg:order-1"><h2 className="mb-3 flex items-center gap-2 font-black"><Users className="size-5" /> Players <span className="ml-auto text-sm text-slate-400">{players.length}/{MAX_PLAYERS}</span></h2><ol className="space-y-2">{[...players].sort((a,b) => b.score-a.score).map((p, i) => <li key={p.id} className={`flex items-center gap-2 rounded-xl p-2 ${p.id === me ? 'ring-2 ring-violet-500 ' : ''}${p.id === state.artistId ? 'bg-amber-100' : 'bg-violet-50'}`}><span className="grid size-9 place-items-center rounded-full bg-white text-xl">{AVATARS[p.avatar % AVATARS.length]}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{p.name} {p.id === me && <span className="text-[10px] font-black uppercase text-violet-600">(You)</span>} {p.id === state.hostId && <Crown className="inline size-3 text-amber-500" />}</span><span className="text-xs font-bold text-violet-600">{p.score} pts</span></span>{p.spectator && <Eye className="size-4 text-slate-400" />}{p.guessed && <span title="Guessed">✓</span>}{isHost && p.id !== me && state.phase === 'lobby' && <button aria-label={`Kick ${p.name}`} className="rounded p-1 text-slate-400 hover:bg-rose-100 hover:text-rose-600" onClick={() => set({ players: players.filter((item) => item.id !== p.id) })}><X className="size-4" /></button>}<span className="sr-only">Rank {i + 1}</span></li>)}</ol></aside>
       <section className="order-1 min-w-0 lg:order-2"><div className="mb-3 flex items-center justify-between rounded-2xl bg-violet-700 px-5 py-3 text-white shadow-pop"><span className="font-bold">Round {state.round}/{state.settings.rounds}</span><span className="text-xl font-black tracking-[.2em]">{isArtist && state.word ? state.word.toUpperCase() : state.maskedWord || 'WAITING'}</span><span className={`grid size-11 place-items-center rounded-full font-black ${seconds <= 10 ? 'bg-rose-500' : 'bg-white/20'}`}>{seconds}</span></div>
         <DrawingCanvas strokes={state.strokes || []} canDraw={isArtist && state.phase === 'drawing'} onStroke={(stroke: Stroke) => set({ strokes: [...(state.strokes || []), stroke] })} onUndo={() => set({ strokes: (state.strokes || []).slice(0,-1) })} onClear={() => set({ strokes: [] })} />
         {isArtist && state.phase === 'drawing' && (state.wordReshuffles || 0) < 1 && !players.some((player) => player.guessed) && <div className="mt-3 text-center"><Button variant="outline" onClick={reshuffleWord}><Shuffle className="size-4" /> Don’t know this word? Change it</Button><p className="mt-1 text-xs font-bold text-slate-500">Available once per turn · resets the canvas and timer</p></div>}
