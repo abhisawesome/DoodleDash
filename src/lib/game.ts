@@ -14,7 +14,7 @@ export type Settings = { rounds: number; turnSeconds: number; customWords: strin
 export type GameState = {
   roomCode: string; hostId: string; creatorId?: string; phase: GamePhase; players: Player[]; settings: Settings;
   round: number; artistIndex: number; artistId?: string; word?: string; choices: string[];
-  maskedWord: string; usedWords?: string[]; turnEndsAt?: number; strokes: Stroke[]; chat: ChatMessage[];
+  maskedWord: string; usedWords?: string[]; wordReshuffles?: number; turnEndsAt?: number; strokes: Stroke[]; chat: ChatMessage[];
 }
 
 export const DEFAULT_SETTINGS: Settings = { rounds: 3, turnSeconds: 80, customWords: [], customOnly: false, hints: true }
@@ -27,7 +27,7 @@ export function maskWord(word: string, revealed: number[] = []) {
 }
 
 export function normalizeGuess(value: string) {
-  return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ')
+  return value.trim().toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]+/gu, '')
 }
 
 export function isCorrectGuess(guess: string, word: string) { return normalizeGuess(guess) === normalizeGuess(word) }

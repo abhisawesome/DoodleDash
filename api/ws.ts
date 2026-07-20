@@ -9,6 +9,8 @@ const bytesToBase64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64
 const base64ToBytes = (value: string) => new Uint8Array(Buffer.from(value, 'base64'))
 const docs = new Map<string, Y.Doc>()
 const roomPattern = /^[A-HJ-NP-Z2-9]{6}$/
+const blockedWords = /\b(fuck|shit|bitch|cunt)\b/gi
+const normalizeGuess = (value: string) => value.trim().toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]+/gu, '')
 const snapshotStore = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN ? Upstash.fromEnv() : null
 const redisTimeout = <T,>(operation: Promise<T>, ms = 1500) => Promise.race<T>([
   operation,
@@ -122,6 +124,33 @@ io.on('connection', (socket) => {
       socket.to(room).emit('y-update', payload)
       await persist(room, doc)
     } catch { socket.disconnect(true) }
+  })
+  socket.on('submit-guess', async (payload: unknown, acknowledge?: (result: { accepted: boolean; correct: boolean; reason?: string }) => void) => {
+    if (typeof payload !== 'string' || payload.length > 120) return acknowledge?.({ accepted: false, correct: false, reason: 'Invalid guess' })
+    try {
+      const doc = await docPromise
+      const state = doc.getMap('game')
+      const phase = state.get('phase')
+      const word = state.get('word')
+      const players = (state.get('players') || []) as Array<{ id: string; name: string; score: number; guessed: boolean; spectator: boolean }>
+      const player = players.find((item) => item.id === playerId)
+      if (phase !== 'drawing' || typeof word !== 'string' || !player || player.id === state.get('artistId') || player.guessed || player.spectator) return acknowledge?.({ accepted: false, correct: false, reason: 'Guessing is not available' })
+      const value = payload.trim().replace(blockedWords, '••••')
+      if (!value) return acknowledge?.({ accepted: false, correct: false, reason: 'Enter a guess' })
+      const correct = normalizeGuess(value) === normalizeGuess(word)
+      const before = Y.encodeStateVector(doc)
+      doc.transact(() => {
+        if (correct) state.set('players', players.map((item) => item.id === playerId ? { ...item, guessed: true, score: item.score + 100 } : item))
+        const chat = (state.get('chat') || []) as Array<Record<string, unknown>>
+        state.set('chat', [...chat.slice(-59), { id: crypto.randomUUID(), at: Date.now(), kind: correct ? 'correct' : 'chat', playerId, playerName: player.name, text: correct ? 'guessed the word!' : value }])
+      }, socket.id)
+      const update = bytesToBase64(Y.encodeStateAsUpdate(doc, before))
+      io.to(room).emit('y-update', update)
+      await persist(room, doc)
+      acknowledge?.({ accepted: true, correct })
+    } catch {
+      acknowledge?.({ accepted: false, correct: false, reason: 'Could not submit guess' })
+    }
   })
   socket.on('disconnect', () => socket.to(room).emit('peer-left', playerId))
 })

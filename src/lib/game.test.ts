@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { BUILT_IN_WORDS, DEFAULT_SETTINGS, chooseWords, fixedArtistScore, fixedGuessScore, isCorrectGuess, maskWord, nextTurn, normalizeGuess, type GameState } from './game'
+import { BUILT_IN_WORDS, DEFAULT_SETTINGS, MAX_PLAYERS, chooseWords, fixedArtistScore, fixedGuessScore, isCorrectGuess, maskWord, nextTurn, normalizeGuess, type GameState } from './game'
 
 describe('game rules', () => {
-  it('provides 2,000 unique built-in prompts', () => {
-    expect(BUILT_IN_WORDS).toHaveLength(2000)
-    expect(new Set(BUILT_IN_WORDS)).toHaveLength(2000)
+  it('provides a unique curated vocabulary large enough for a maximum-size game', () => {
+    expect(BUILT_IN_WORDS).toHaveLength(399)
+    expect(new Set(BUILT_IN_WORDS)).toHaveLength(BUILT_IN_WORDS.length)
+    expect(BUILT_IN_WORDS.length).toBeGreaterThanOrEqual(MAX_PLAYERS * 5 * 3)
   })
-  it('normalizes fair guesses', () => { expect(normalizeGuess('  ICE   Cream ')).toBe('ice cream'); expect(isCorrectGuess('Ice Cream', 'ice cream')).toBe(true) })
+  it('normalizes fair guesses', () => { expect(normalizeGuess('  ICE   Cream ')).toBe('icecream'); expect(isCorrectGuess('Ice Cream', 'ice-cream')).toBe(true); expect(isCorrectGuess('cafe', 'café')).toBe(true) })
   it('uses the selected fixed scoring rules', () => { expect(fixedGuessScore()).toBe(100); expect(fixedArtistScore(3)).toBe(150) })
   it('masks letters while preserving spaces', () => { expect(maskWord('ice cream')).toBe('_ _ _   _ _ _ _ _'); expect(maskWord('cat', [1])).toBe('_ A _') })
   it('advances through players, rounds, and results', () => {
