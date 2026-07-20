@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from '
 import * as Dialog from '@radix-ui/react-dialog'
 import { Copy, Crown, Eye, Link2, LoaderCircle, Palette, Play, Users, Volume2, VolumeX, X } from 'lucide-react'
 import type { GameState, Player, Stroke, ChatMessage } from '@/lib/game'
-import { DEFAULT_SETTINGS, MAX_PLAYERS, chooseWords, fixedArtistScore, fixedGuessScore, isCorrectGuess, maskWord } from '@/lib/game'
+import { DEFAULT_SETTINGS, MAX_PLAYERS, chooseWords, fixedArtistScore, fixedGuessScore, isCorrectGuess, maskWord, normalizeGuess } from '@/lib/game'
 import { makeRoomCode, playerId } from '@/lib/utils'
 import { RoomSync } from '@/lib/sync'
 import { DrawingCanvas } from '@/components/DrawingCanvas'
@@ -106,7 +106,7 @@ function Room() {
     const players = state.players || []
     if (!state.roomCode) {
       const first: Player = { id: me, name, avatar, score: 0, connected: true, guessed: false, spectator: false }
-      set({ roomCode: code, hostId: me, creatorId: isCreator ? me : undefined, phase: 'lobby', players: [first], settings: DEFAULT_SETTINGS, round: 1, artistIndex: -1, choices: [], maskedWord: '', strokes: [], chat: [] })
+      set({ roomCode: code, hostId: me, creatorId: isCreator ? me : undefined, phase: 'lobby', players: [first], settings: DEFAULT_SETTINGS, round: 1, artistIndex: -1, choices: [], maskedWord: '', usedWords: [], strokes: [], chat: [] })
       queueMicrotask(() => sync.socket.emit('client-ready'))
     } else {
       if (isCreator && !state.creatorId) set({ creatorId: me, hostId: me })
@@ -131,9 +131,11 @@ function Room() {
     if (latest.artistIndex >= 0 && completedRound && latest.round >= latestSettings.rounds) return set({ phase: 'game-results' })
     const next = completedRound ? 0 : latest.artistIndex + 1
     const round = completedRound && latest.artistIndex >= 0 ? latest.round + 1 : latest.round
-    set({ phase: 'choosing', artistIndex: next, round, artistId: active[next].id, choices: chooseWords(latestSettings), word: '', maskedWord: '', strokes: [], players: (latest.players || []).map((p) => ({ ...p, guessed: false, spectator: false })) })
+    const choices = chooseWords(latestSettings, 3, latest.usedWords || [])
+    const usedWords = [...new Set([...(latest.usedWords || []), ...choices.map(normalizeGuess)])]
+    set({ phase: 'choosing', artistIndex: next, round, artistId: active[next].id, choices, usedWords, word: '', maskedWord: '', strokes: [], players: (latest.players || []).map((p) => ({ ...p, guessed: false, spectator: false })) })
   }
-  const choose = (word: string) => set({ word, maskedWord: maskWord(word), choices: [], phase: 'drawing', turnEndsAt: Date.now() + settings.turnSeconds * 1000 })
+  const choose = (word: string) => set({ word, usedWords: [...new Set([...(state.usedWords || []), normalizeGuess(word)])], maskedWord: maskWord(word), choices: [], phase: 'drawing', turnEndsAt: Date.now() + settings.turnSeconds * 1000 })
   const endTurn = (playersOverride?: Player[]) => {
     const latest = sync.state.toJSON() as GameState
     if (latest.phase !== 'drawing') return
@@ -213,7 +215,7 @@ function Room() {
         <ol className="mx-auto mt-5 max-w-sm space-y-2 text-left">
           {rankedPlayers.map((player, index) => <li key={player.id} className={`flex items-center gap-3 rounded-xl px-4 py-3 ${index === 0 ? 'bg-amber-100' : 'bg-violet-50'}`}><span className="w-7 text-center font-black">{index + 1}</span><span aria-hidden="true">{AVATARS[player.avatar % AVATARS.length]}</span><span className="min-w-0 flex-1 truncate font-bold">{player.name}</span><span className="font-black text-violet-700">{player.score} pts</span></li>)}
         </ol>
-        {isHost ? <Button className="mt-5" onClick={() => set({ phase: 'lobby', round: 1, artistIndex: -1, artistId: undefined, word: '', maskedWord: '', strokes: [], players: players.map((p) => ({ ...p, score: 0, guessed: false })) })}><Play /> Play again</Button> : <p className="mt-5 text-sm font-bold text-violet-600">Waiting for the host to start another game…</p>}
+        {isHost ? <Button className="mt-5" onClick={() => set({ phase: 'lobby', round: 1, artistIndex: -1, artistId: undefined, word: '', maskedWord: '', usedWords: [], strokes: [], players: players.map((p) => ({ ...p, score: 0, guessed: false })) })}><Play /> Play again</Button> : <p className="mt-5 text-sm font-bold text-violet-600">Waiting for the host to start another game…</p>}
       </Dialog.Content>
     </Dialog.Portal>
   </Dialog.Root>

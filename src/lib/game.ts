@@ -1,3 +1,7 @@
+import { BUILT_IN_WORDS } from './words'
+
+export { BUILT_IN_WORDS } from './words'
+
 export const MAX_PLAYERS = 20
 export const RECONNECT_GRACE_MS = 15_000
 
@@ -10,7 +14,7 @@ export type Settings = { rounds: number; turnSeconds: number; customWords: strin
 export type GameState = {
   roomCode: string; hostId: string; creatorId?: string; phase: GamePhase; players: Player[]; settings: Settings;
   round: number; artistIndex: number; artistId?: string; word?: string; choices: string[];
-  maskedWord: string; turnEndsAt?: number; strokes: Stroke[]; chat: ChatMessage[];
+  maskedWord: string; usedWords?: string[]; turnEndsAt?: number; strokes: Stroke[]; chat: ChatMessage[];
 }
 
 export const DEFAULT_SETTINGS: Settings = { rounds: 3, turnSeconds: 80, customWords: [], customOnly: false, hints: true }
@@ -37,16 +41,12 @@ export function nextTurn(state: GameState): Pick<GameState, 'round' | 'artistInd
   return { round: state.round, artistIndex: state.artistIndex, phase: 'game-results' }
 }
 
-export const BUILT_IN_WORDS = [
-  'airplane','alarm clock','apple','backpack','banana','beach','bicycle','birthday cake','book','bridge',
-  'butterfly','camera','candle','castle','cat','cloud','computer','crown','dog','dragon','drum','elephant',
-  'fire truck','flower','football','guitar','hamburger','helicopter','ice cream','island','key','kite','ladder',
-  'lighthouse','moon','mountain','octopus','panda','pencil','pizza','rainbow','rocket','sandcastle','shark',
-  'snowman','spider','star','sunflower','telescope','train','tree house','umbrella','volcano','watermelon'
-]
-
-export function chooseWords(settings: Settings, count = 3) {
+export function chooseWords(settings: Settings, count = 3, excluded: string[] = []) {
   const custom = settings.customWords.map(normalizeGuess).filter(Boolean)
-  const pool = settings.customOnly && custom.length >= count ? custom : [...BUILT_IN_WORDS, ...custom]
-  return [...new Set(pool)].sort(() => Math.random() - 0.5).slice(0, count)
+  const pool = [...new Set(settings.customOnly && custom.length >= count ? custom : [...BUILT_IN_WORDS, ...custom])]
+  const excludedSet = new Set(excluded.map(normalizeGuess))
+  const unseen = pool.filter((word) => !excludedSet.has(normalizeGuess(word))).sort(() => Math.random() - 0.5)
+  if (unseen.length >= count) return unseen.slice(0, count)
+  const seen = pool.filter((word) => excludedSet.has(normalizeGuess(word))).sort(() => Math.random() - 0.5)
+  return [...unseen, ...seen].slice(0, count)
 }
