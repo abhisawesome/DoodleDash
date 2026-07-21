@@ -157,7 +157,11 @@ function Room() {
     const usedWords = [...new Set([...(latest.usedWords || []), ...choices.map(normalizeGuess)])]
     set({ phase: 'choosing', artistIndex: next, round, artistId: active[next].id, choices, usedWords, wordReshuffles: 0, word: '', maskedWord: '', strokes: [], players: (latest.players || []).map((p) => ({ ...p, guessed: false, spectator: false })) })
   }
-  const choose = (word: string) => set({ word, usedWords: [...new Set([...(state.usedWords || []), normalizeGuess(word)])], maskedWord: maskWord(word), choices: [], phase: 'drawing', turnEndsAt: Date.now() + settings.turnSeconds * 1000 })
+  const choose = (word: string) => {
+    const latest = sync.state.toJSON() as GameState
+    if (latest.phase !== 'choosing' || latest.artistId !== me || !latest.choices?.includes(word)) return
+    set({ word, usedWords: [...new Set([...(latest.usedWords || []), normalizeGuess(word)])], maskedWord: maskWord(word), choices: [], phase: 'drawing', turnEndsAt: Date.now() + (latest.settings || DEFAULT_SETTINGS).turnSeconds * 1000 })
+  }
   const reshuffleWord = () => {
     const latest = sync.state.toJSON() as GameState
     if (latest.artistId !== me || !['choosing', 'drawing'].includes(latest.phase) || (latest.wordReshuffles || 0) >= 1 || (latest.players || []).some((player) => player.guessed)) return

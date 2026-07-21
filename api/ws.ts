@@ -8,6 +8,7 @@ import * as Y from 'yjs'
 const bytesToBase64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64')
 const base64ToBytes = (value: string) => new Uint8Array(Buffer.from(value, 'base64'))
 const docs = new Map<string, Y.Doc>()
+const instanceId = crypto.randomUUID()
 const roomPattern = /^[A-HJ-NP-Z2-9]{6}$/
 const blockedWords = /\b(fuck|shit|bitch|cunt)\b/gi
 const normalizeGuess = (value: string) => value.trim().toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]+/gu, '')
@@ -49,6 +50,25 @@ const io = new Server(httpServer, {
   maxHttpBufferSize: 1e6,
 })
 
+// Socket.IO's Redis adapter forwards room events to clients on every instance,
+// but it does not run the receiving instance's `socket.on('y-update')` handler.
+// Keep each instance's authoritative Y.Doc in sync as well, otherwise a guess
+// routed to a different instance can be validated against an old game phase.
+io.on('y-doc-update', async (room: unknown, payload: unknown, source: unknown) => {
+  if (source === instanceId || typeof room !== 'string' || !roomPattern.test(room) || typeof payload !== 'string' || payload.length > 1_000_000) return
+  try {
+    const doc = await documentFor(room)
+    Y.applyUpdate(doc, base64ToBytes(payload), 'server-sync')
+  } catch (error) {
+    console.warn(`Could not synchronize room ${room} between realtime instances`, error)
+  }
+})
+
+let redisAdapterEnabled = false
+const syncOtherInstances = (room: string, payload: string) => {
+  if (redisAdapterEnabled) io.serverSideEmit('y-doc-update', room, payload, instanceId)
+}
+
 let nativeRedisUrl: string | undefined
 if (process.env.REDIS_URL) {
   try {
@@ -77,6 +97,7 @@ if (nativeRedisUrl) {
   void Promise.all([publisher.connect(), subscriber.connect()])
     .then(() => {
       io.adapter(createAdapter(publisher, subscriber))
+      redisAdapterEnabled = true
       console.info('Redis pub/sub adapter enabled')
     })
     .catch((error: Error) => {
@@ -122,6 +143,7 @@ io.on('connection', (socket) => {
       const update = base64ToBytes(payload)
       Y.applyUpdate(doc, update, socket.id)
       socket.to(room).emit('y-update', payload)
+      syncOtherInstances(room, payload)
       await persist(room, doc)
     } catch { socket.disconnect(true) }
   })
@@ -146,6 +168,7 @@ io.on('connection', (socket) => {
       }, socket.id)
       const update = bytesToBase64(Y.encodeStateAsUpdate(doc, before))
       io.to(room).emit('y-update', update)
+      syncOtherInstances(room, update)
       await persist(room, doc)
       acknowledge?.({ accepted: true, correct })
     } catch {
