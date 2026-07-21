@@ -217,7 +217,7 @@ function Room() {
     const value = guess.trim()
     if (!value || submittingGuess || isArtist || current?.guessed || state.phase !== 'drawing') return
     setSubmittingGuess(true); setGuessError('')
-    sync.socket.timeout(5000).emit('submit-guess', value.slice(0, 120), (error: Error | null, result?: { accepted: boolean; correct: boolean; reason?: string }) => {
+    sync.socket.timeout(5000).emit('submit-guess', { guess: value.slice(0, 120), state: sync.encodedState() }, (error: Error | null, result?: { accepted: boolean; correct: boolean; reason?: string }) => {
       setSubmittingGuess(false)
       if (error || !result?.accepted) return setGuessError(result?.reason || 'Could not submit. Try again.')
       setGuess('')

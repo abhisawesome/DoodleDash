@@ -148,16 +148,19 @@ io.on('connection', (socket) => {
     } catch { socket.disconnect(true) }
   })
   socket.on('submit-guess', async (payload: unknown, acknowledge?: (result: { accepted: boolean; correct: boolean; reason?: string }) => void) => {
-    if (typeof payload !== 'string' || payload.length > 120) return acknowledge?.({ accepted: false, correct: false, reason: 'Invalid guess' })
+    const guess = typeof payload === 'string' ? payload : payload && typeof payload === 'object' && 'guess' in payload ? (payload as { guess?: unknown }).guess : undefined
+    const clientState = payload && typeof payload === 'object' && 'state' in payload ? (payload as { state?: unknown }).state : undefined
+    if (typeof guess !== 'string' || guess.length > 120 || (clientState !== undefined && (typeof clientState !== 'string' || clientState.length > 1_000_000))) return acknowledge?.({ accepted: false, correct: false, reason: 'Invalid guess' })
     try {
       const doc = await docPromise
+      if (typeof clientState === 'string') Y.applyUpdate(doc, base64ToBytes(clientState), socket.id)
       const state = doc.getMap('game')
       const phase = state.get('phase')
       const word = state.get('word')
       const players = (state.get('players') || []) as Array<{ id: string; name: string; score: number; guessed: boolean; spectator: boolean }>
       const player = players.find((item) => item.id === playerId)
       if (phase !== 'drawing' || typeof word !== 'string' || !player || player.id === state.get('artistId') || player.guessed || player.spectator) return acknowledge?.({ accepted: false, correct: false, reason: 'Guessing is not available' })
-      const value = payload.trim().replace(blockedWords, '••••')
+      const value = guess.trim().replace(blockedWords, '••••')
       if (!value) return acknowledge?.({ accepted: false, correct: false, reason: 'Enter a guess' })
       const correct = normalizeGuess(value) === normalizeGuess(word)
       const before = Y.encodeStateVector(doc)

@@ -15,12 +15,18 @@ export function playerId() {
   // window.name is tab-specific and survives reloads, so namespace the saved
   // player identity by a stable ID for this browser tab.
   const prefix = 'doodledash-tab:'
+  const reloading = performance.getEntriesByType('navigation').some((entry) => (entry as PerformanceNavigationTiming).type === 'reload')
   const tabId = window.name.startsWith(prefix) ? window.name.slice(prefix.length) : crypto.randomUUID()
   if (!window.name.startsWith(prefix)) window.name = `${prefix}${tabId}`
   const storageKey = `doodledash-player-id:${tabId}`
-  const saved = sessionStorage.getItem(storageKey)
-  if (saved) return saved
+  const saved = sessionStorage.getItem(storageKey) || (reloading ? sessionStorage.getItem('doodledash-player-id') : null)
+  if (saved) {
+    sessionStorage.setItem(storageKey, saved)
+    sessionStorage.setItem('doodledash-player-id', saved)
+    return saved
+  }
   const id = crypto.randomUUID()
   sessionStorage.setItem(storageKey, id)
+  sessionStorage.setItem('doodledash-player-id', id)
   return id
 }

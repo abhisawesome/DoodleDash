@@ -49,5 +49,7 @@ export class RoomSync {
     })
   }
 
+  encodedState() { return bytesToBase64(Y.encodeStateAsUpdate(this.doc)) }
+
   destroy() { if (this.syncTimer) window.clearInterval(this.syncTimer); this.socket.disconnect(); this.doc.destroy() }
 }
