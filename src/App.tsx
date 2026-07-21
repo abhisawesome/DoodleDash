@@ -12,6 +12,18 @@ import { Input } from '@/components/ui/input'
 
 const AVATARS = ['🦊','🐼','🐸','🐙','🦁','🐨','🐯','🦄']
 const cleanName = (value: string) => value.trim().replace(/[^\p{L}\p{N} _-]/gu, '').slice(0, 18)
+const WORD_HISTORY_KEY = 'doodledash-used-words'
+const readWordHistory = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(WORD_HISTORY_KEY) || '[]')
+    return Array.isArray(saved) ? saved.filter((word): word is string => typeof word === 'string').slice(-2000) : []
+  } catch { return [] }
+}
+const rememberWords = (words: string[]) => {
+  const history = [...new Set([...readWordHistory(), ...words.map(normalizeGuess).filter(Boolean)])].slice(-2000)
+  try { localStorage.setItem(WORD_HISTORY_KEY, JSON.stringify(history)) } catch { /* Storage may be unavailable in private browsing. */ }
+  return history
+}
 
 function Home() {
   const navigate = useNavigate(); const sharedRoom = new URLSearchParams(location.search).get('room')?.toUpperCase() || ''; const [name, setName] = useState(localStorage.getItem('doodledash-name') || ''); const [code, setCode] = useState(sharedRoom)
@@ -153,7 +165,8 @@ function Room() {
     if (latest.artistIndex >= 0 && completedRound && latest.round >= latestSettings.rounds) return set({ phase: 'game-results' })
     const next = completedRound ? 0 : Math.max(0, artistPosition + 1)
     const round = completedRound && latest.artistIndex >= 0 ? latest.round + 1 : latest.round
-    const choices = chooseWords(latestSettings, 3, latest.usedWords || [])
+    const choices = chooseWords(latestSettings, 3, [...(latest.usedWords || []), ...readWordHistory()])
+    rememberWords(choices)
     const usedWords = [...new Set([...(latest.usedWords || []), ...choices.map(normalizeGuess)])]
     set({ phase: 'choosing', artistIndex: next, round, artistId: active[next].id, choices, usedWords, wordReshuffles: 0, word: '', maskedWord: '', strokes: [], players: (latest.players || []).map((p) => ({ ...p, guessed: false, spectator: false })) })
   }
@@ -165,7 +178,8 @@ function Room() {
   const reshuffleWord = () => {
     const latest = sync.state.toJSON() as GameState
     if (latest.artistId !== me || !['choosing', 'drawing'].includes(latest.phase) || (latest.wordReshuffles || 0) >= 1 || (latest.players || []).some((player) => player.guessed)) return
-    const choices = chooseWords(latest.settings || DEFAULT_SETTINGS, 3, latest.usedWords || [])
+    const choices = chooseWords(latest.settings || DEFAULT_SETTINGS, 3, [...(latest.usedWords || []), ...readWordHistory()])
+    rememberWords(choices)
     const usedWords = [...new Set([...(latest.usedWords || []), ...choices.map(normalizeGuess)])]
     set({ phase: 'choosing', choices, usedWords, wordReshuffles: 1, word: '', maskedWord: '', strokes: [], turnEndsAt: undefined })
   }
@@ -254,7 +268,7 @@ function Room() {
         <ol className="mx-auto mt-5 max-w-sm space-y-2 text-left">
           {rankedPlayers.map((player, index) => <li key={player.id} className={`flex items-center gap-3 rounded-xl px-4 py-3 ${index === 0 ? 'bg-amber-100' : 'bg-violet-50'}`}><span className="w-7 text-center font-black">{index + 1}</span><span aria-hidden="true">{AVATARS[player.avatar % AVATARS.length]}</span><span className="min-w-0 flex-1 truncate font-bold">{player.name}</span><span className="font-black text-violet-700">{player.score} pts</span></li>)}
         </ol>
-        {isHost ? <Button className="mt-5" onClick={() => set({ phase: 'lobby', round: 1, artistIndex: -1, artistId: undefined, word: '', maskedWord: '', usedWords: [], wordReshuffles: 0, strokes: [], players: players.map((p) => ({ ...p, score: 0, guessed: false })) })}><Play /> Play again</Button> : <p className="mt-5 text-sm font-bold text-violet-600">Waiting for the host to start another game…</p>}
+        {isHost ? <Button className="mt-5" onClick={() => set({ phase: 'lobby', round: 1, artistIndex: -1, artistId: undefined, word: '', maskedWord: '', wordReshuffles: 0, strokes: [], players: players.map((p) => ({ ...p, score: 0, guessed: false })) })}><Play /> Play again</Button> : <p className="mt-5 text-sm font-bold text-violet-600">Waiting for the host to start another game…</p>}
       </Dialog.Content>
     </Dialog.Portal>
   </Dialog.Root>
