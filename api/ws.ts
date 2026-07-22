@@ -4,6 +4,7 @@ import { createAdapter } from '@socket.io/redis-adapter'
 import Redis from 'ioredis'
 import { Redis as Upstash } from '@upstash/redis'
 import * as Y from 'yjs'
+import { guessScore } from './scoring'
 
 const bytesToBase64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64')
 const base64ToBytes = (value: string) => new Uint8Array(Buffer.from(value, 'base64'))
@@ -216,7 +217,14 @@ io.on('connection', async (socket) => {
       if (!value) return acknowledge?.({ accepted: false, correct: false, reason: 'Enter a guess' })
       const correct = normalizeGuess(value) === normalizeGuess(word)
       doc.transact(() => {
-        if (correct) state.set('players', players.map((item) => item.id === playerId ? { ...item, guessed: true, score: item.score + 100 } : item))
+        if (correct) {
+          const firstCorrectGuess = !players.some((item) => item.id !== state.get('artistId') && item.guessed)
+          const turnEndsAt = state.get('turnEndsAt')
+          const settings = state.get('settings') as { turnSeconds?: unknown } | undefined
+          const turnSeconds = typeof settings?.turnSeconds === 'number' ? settings.turnSeconds : 80
+          const points = guessScore(firstCorrectGuess, typeof turnEndsAt === 'number' ? turnEndsAt : undefined, turnSeconds)
+          state.set('players', players.map((item) => item.id === playerId ? { ...item, guessed: true, score: item.score + points } : item))
+        }
         const chat = (state.get('chat') || []) as Array<Record<string, unknown>>
         state.set('chat', [...chat.slice(-59), { id: crypto.randomUUID(), at: Date.now(), kind: correct ? 'correct' : 'chat', playerId, playerName: player.name, text: correct ? 'guessed the word!' : value }])
       }, socket.id)

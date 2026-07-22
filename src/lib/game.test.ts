@@ -17,7 +17,7 @@ describe('game rules', () => {
     expect(excluded.filter((word) => BUILT_IN_WORDS.includes(word as never))).toEqual([])
   })
   it('normalizes fair guesses', () => { expect(normalizeGuess('  ICE   Cream ')).toBe('icecream'); expect(isCorrectGuess('Ice Cream', 'ice-cream')).toBe(true); expect(isCorrectGuess('cafe', 'café')).toBe(true) })
-  it('uses the selected fixed scoring rules', () => { expect(fixedGuessScore()).toBe(100); expect(fixedArtistScore(3)).toBe(150) })
+  it('uses the base guess score and rewards the artist for each correct guesser', () => { expect(fixedGuessScore()).toBe(100); expect(fixedArtistScore(3)).toBe(150) })
   it('masks letters while preserving spaces', () => { expect(maskWord('ice cream')).toBe('_ _ _   _ _ _ _ _'); expect(maskWord('cat', [1])).toBe('_ A _') })
   it('advances through players, rounds, and results', () => {
     const state = { players: [{ id: 'a', spectator: false }, { id: 'b', spectator: false }], artistIndex: 0, round: 1, settings: { rounds: 2 } } as GameState
