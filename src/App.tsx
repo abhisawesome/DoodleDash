@@ -181,6 +181,10 @@ function Room({ identity, takeover = false, restoring = false }: { identity: Roo
   const seconds = state.turnEndsAt ? Math.max(0, Math.ceil((state.turnEndsAt - now) / 1000)) : settings.turnSeconds
   const startTurn = () => {
     const latest = sync.state.toJSON() as GameState
+    // A delayed turn-results timer (or a rapid double click) must not advance a
+    // game that has already moved on. This is especially important for rematches,
+    // where an old callback could otherwise create a second choosing turn.
+    if (latest.hostId !== me || !['lobby', 'turn-results'].includes(latest.phase)) return
     const latestSettings = latest.settings || DEFAULT_SETTINGS
     const active = (latest.players || []).filter((p) => !p.spectator && p.connected)
     if (!active.length) return
@@ -194,6 +198,16 @@ function Room({ identity, takeover = false, restoring = false }: { identity: Roo
     rememberWords(choices)
     const usedWords = [...new Set([...(latest.usedWords || []), ...choices.map(normalizeGuess)])]
     set({ phase: 'choosing', artistIndex: next, round, artistId: active[next].id, choices, usedWords, wordReshuffles: 0, word: '', maskedWord: '', strokes: [], players: (latest.players || []).map((p) => ({ ...p, guessed: false, spectator: false })) })
+  }
+  const playAgain = () => {
+    const latest = sync.state.toJSON() as GameState
+    if (latest.hostId !== me || latest.phase !== 'game-results') return
+    set({
+      phase: 'lobby', round: 1, artistIndex: -1, artistId: undefined,
+      word: '', choices: [], maskedWord: '', usedWords: [], wordReshuffles: 0,
+      turnEndsAt: undefined, strokes: [], chat: [],
+      players: (latest.players || []).map((player) => ({ ...player, score: 0, guessed: false, spectator: false })),
+    })
   }
   const choose = (word: string) => {
     const latest = sync.state.toJSON() as GameState
@@ -292,7 +306,7 @@ function Room({ identity, takeover = false, restoring = false }: { identity: Roo
         <ol className="mx-auto mt-5 max-w-sm space-y-2 text-left">
           {rankedPlayers.map((player, index) => <li key={player.id} className={`flex items-center gap-3 rounded-xl px-4 py-3 ${index === 0 ? 'bg-amber-100' : 'bg-violet-50'}`}><span className="w-7 text-center font-black">{index + 1}</span><span aria-hidden="true">{AVATARS[player.avatar % AVATARS.length]}</span><span className="min-w-0 flex-1 truncate font-bold">{player.name}</span><span className="font-black text-violet-700">{player.score} pts</span></li>)}
         </ol>
-        {isHost ? <Button className="mt-5" onClick={() => set({ phase: 'lobby', round: 1, artistIndex: -1, artistId: undefined, word: '', maskedWord: '', wordReshuffles: 0, strokes: [], players: players.map((p) => ({ ...p, score: 0, guessed: false })) })}><Play /> Play again</Button> : <p className="mt-5 text-sm font-bold text-violet-600">Waiting for the host to start another game…</p>}
+        {isHost ? <Button className="mt-5" onClick={playAgain}><Play /> Play again</Button> : <p className="mt-5 text-sm font-bold text-violet-600">Waiting for the host to start another game…</p>}
       </Dialog.Content>
     </Dialog.Portal>
   </Dialog.Root>

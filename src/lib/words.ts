@@ -523,4 +523,10 @@ export const BUILT_IN_WORDS = [
   "woodpecker", "wool", "wrapping paper", "wreath", "wrench", "xylophone",
   "yardstick", "yeti", "yo-yo", "yogurt", "zebra", "zeppelin", "zigzag",
   "zipline", "zipper", "zombie",
+  "hawk", "sparrow", "seal", "crocodile", "worm", "grape", "watermelon",
+  "mango", "plum", "burger", "donut", "noodles", "tea", "sofa", "monitor",
+  "lock", "screwdriver", "rope", "fan", "sock", "shirt", "pants", "microphone",
+  "police car", "roller coaster", "police officer", "musician", "treasure", "gold",
+  "lightning", "football", "soccer", "tennis", "baseball", "golf", "swimming",
+  "surfing", "skiing", "battery", "paintbrush",
 ] as const
