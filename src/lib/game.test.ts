@@ -3,9 +3,18 @@ import { BUILT_IN_WORDS, DEFAULT_SETTINGS, MAX_PLAYERS, chooseWords, fixedArtist
 
 describe('game rules', () => {
   it('provides a unique curated vocabulary large enough for a maximum-size game', () => {
-    expect(BUILT_IN_WORDS).toHaveLength(399)
+    expect(BUILT_IN_WORDS.length).toBeGreaterThan(1000)
     expect(new Set(BUILT_IN_WORDS)).toHaveLength(BUILT_IN_WORDS.length)
     expect(BUILT_IN_WORDS.length).toBeGreaterThanOrEqual(MAX_PLAYERS * 5 * 3)
+  })
+  it('excludes adult, hateful, graphic, and otherwise sensitive supplied prompts', () => {
+    const excluded = [
+      'sexoffender', 'transgender', 'stalker', 'doodshoofd', 'assassin', 'assault',
+      'corpse', 'cigarette', 'communism', 'crack', 'dead', 'depressed', 'divorce',
+      'murderer', 'pregnant', 'religion', 'sniper', 'stoned', 'tampon', 'thug',
+      'tumor', 'victim', 'violence', 'vodka', 'weapon',
+    ]
+    expect(excluded.filter((word) => BUILT_IN_WORDS.includes(word as never))).toEqual([])
   })
   it('normalizes fair guesses', () => { expect(normalizeGuess('  ICE   Cream ')).toBe('icecream'); expect(isCorrectGuess('Ice Cream', 'ice-cream')).toBe(true); expect(isCorrectGuess('cafe', 'café')).toBe(true) })
   it('uses the selected fixed scoring rules', () => { expect(fixedGuessScore()).toBe(100); expect(fixedArtistScore(3)).toBe(150) })
