@@ -4,7 +4,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { Copy, Crown, Eye, Link2, LoaderCircle, Palette, Play, Shuffle, UserPlus, Users, Volume2, VolumeX, X } from 'lucide-react'
 import type { GameState, Player, Stroke } from '@/lib/game'
 import { DEFAULT_SETTINGS, MAX_PLAYERS, chooseWords, fixedArtistScore, maskWord, normalizeGuess } from '@/lib/game'
-import { makeRoomCode, playerId } from '@/lib/utils'
+import { browserTabId, clearRoomIdentity, makeRoomCode, refreshRoomIdentity, saveRoomIdentity, savedRoomIdentity, type RoomIdentity } from '@/lib/utils'
 import { RoomSync } from '@/lib/sync'
 import { DrawingCanvas } from '@/components/DrawingCanvas'
 import { Button } from '@/components/ui/button'
@@ -36,8 +36,9 @@ const rememberWords = (words: string[]) => {
 }
 
 function Home() {
-  const navigate = useNavigate(); const sharedRoom = new URLSearchParams(location.search).get('room')?.toUpperCase() || ''; const [name, setName] = useState(localStorage.getItem('doodledash-name') || ''); const [code, setCode] = useState(sharedRoom)
-  const go = (roomCode: string, creating = false) => { const safe = cleanName(name); if (!safe) return; localStorage.setItem('doodledash-name', safe); navigate(`/room/${roomCode.toUpperCase()}?name=${encodeURIComponent(safe)}${creating ? '&creator=1' : ''}`) }
+  const navigate = useNavigate(); const search = new URLSearchParams(location.search); const sharedRoom = search.get('room')?.toUpperCase() || ''; const forceNew = search.get('new') === '1'; const saved = sharedRoom && !forceNew ? savedRoomIdentity(sharedRoom) : null; const sameTab = saved?.tabId === browserTabId(); const [name, setName] = useState(forceNew ? '' : localStorage.getItem('doodledash-name') || ''); const [code, setCode] = useState(sharedRoom)
+  const go = (roomCode: string, creating = false) => { const safe = cleanName(name); if (!safe) return; if (forceNew) clearRoomIdentity(roomCode); localStorage.setItem('doodledash-name', safe); navigate(`/room/${roomCode.toUpperCase()}?join=1&name=${encodeURIComponent(safe)}${creating ? '&creator=1' : ''}`) }
+  if (saved) return <main className="grid min-h-screen place-items-center p-5"><section className="w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-pop"><h1 className="text-2xl font-black text-violet-800">Return to room {sharedRoom}?</h1><p className="mt-2 text-slate-600">This browser already has a player named <b>{saved.name}</b>.</p><div className="mt-5 grid gap-3"><Button size="lg" onClick={() => navigate(`/room/${sharedRoom}?resume=1${sameTab ? '' : '&takeover=1'}`)}>Continue as {saved.name}</Button><Button size="lg" variant="outline" onClick={() => navigate(`/?room=${sharedRoom}&new=1`, { replace: true })}>Join as a new player</Button></div></section></main>
   return <main className="flex min-h-screen items-center justify-center p-5"><section className="w-full max-w-lg text-center">
     <div className="mb-8"><div className="mx-auto mb-4 grid size-20 rotate-3 place-items-center rounded-3xl bg-amber-300 text-4xl shadow-pop"><Palette /></div><h1 className="brand text-5xl font-black tracking-tight text-violet-700 sm:text-6xl">DoodleDash</h1><p className="mt-3 text-lg font-medium text-violet-950/70">Draw it. Guess it. Laugh about it.</p></div>
     <div className="space-y-4 rounded-3xl border-4 border-white bg-white/90 p-6 text-left shadow-pop"><label className="font-bold" htmlFor="name">Your nickname</label><Input id="name" autoFocus maxLength={18} placeholder="PicassoPanda" value={name} onChange={(e) => setName(e.target.value)} />
@@ -64,12 +65,14 @@ function useYState(sync: RoomSync) {
   return snapshot
 }
 
-function Room() {
-  const { code = '' } = useParams(); const params = new URLSearchParams(location.search); const name = cleanName(params.get('name') || localStorage.getItem('doodledash-name') || '')
-  const isCreator = params.get('creator') === '1'
-  const me = useMemo(() => playerId(), []); const avatar = useMemo(() => Math.floor(Math.random() * AVATARS.length), [])
-  const sync = useMemo(() => new RoomSync(code, { id: me, name, avatar }), [code, me, name, avatar]); const state = useYState(sync)
+function Room({ identity, takeover = false, restoring = false }: { identity: RoomIdentity; takeover?: boolean; restoring?: boolean }) {
+  const { code = '' } = useParams(); const params = new URLSearchParams(location.search); const name = identity.name
+  const navigate = useNavigate()
+  const isCreator = useRef(params.get('creator') === '1').current
+  const me = identity.id; const avatar = identity.avatar
+  const sync = useMemo(() => new RoomSync(code, { id: me, name, avatar }, takeover), [code, me, name, avatar, takeover]); const state = useYState(sync)
   const joinedName = useRef<string | null>(null)
+  const identityCleared = useRef(false)
   const lastPhase = useRef(state.phase)
   const knownPlayerIds = useRef<Set<string> | null>(null)
   const joinNoticeTimer = useRef<number | undefined>(undefined)
@@ -116,6 +119,18 @@ function Room() {
   }, [sync, me])
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer) }, [])
   useEffect(() => {
+    const renew = () => { if (!identityCleared.current && sync.socket.connected) refreshRoomIdentity(code, identity) }
+    renew()
+    const timer = window.setInterval(renew, 60_000)
+    return () => window.clearInterval(timer)
+  }, [code, identity, sync])
+  useEffect(() => {
+    if (state.phase !== 'game-results') return
+    identityCleared.current = true
+    clearRoomIdentity(code)
+  }, [code, state.phase])
+  useEffect(() => { window.history.replaceState(null, '', `/room/${code}`) }, [code])
+  useEffect(() => {
     if (muted || !state.phase || state.phase === lastPhase.current) return
     lastPhase.current = state.phase
     try {
@@ -135,6 +150,11 @@ function Room() {
       queueMicrotask(() => sync.socket.emit('client-ready'))
     } else {
       if (isCreator && !state.creatorId) set({ creatorId: me, hostId: me })
+      if (restoring && !players.some((player) => player.id === me)) {
+        clearRoomIdentity(code)
+        navigate(`/?room=${code}&new=1`, { replace: true })
+        return
+      }
       if (!players.some((p) => p.id === me) && players.filter((player) => player.connected).length < MAX_PLAYERS) {
         const finalName = joinedName.current || availableName(name, players)
         joinedName.current = finalName
@@ -142,7 +162,7 @@ function Room() {
         queueMicrotask(() => sync.socket.emit('client-ready'))
       }
     }
-  }, [connected, synced, state.roomCode, state.players, state.creatorId, state.phase, code, me, name, avatar, isCreator])
+  }, [connected, synced, state.roomCode, state.players, state.creatorId, state.phase, code, me, name, avatar, isCreator, restoring, navigate])
 
   const players = state.players || []; const settings = state.settings || DEFAULT_SETTINGS; const current = players.find((p) => p.id === me); const isHost = state.hostId === me; const isArtist = state.artistId === me
   useEffect(() => {
@@ -216,13 +236,12 @@ function Room() {
     const nextMask = maskWord(state.word, revealed)
     if (nextMask !== state.maskedWord) set({ maskedWord: nextMask })
   }, [seconds, isHost, state.phase, state.word, settings.hints])
-  if (!name) return <Navigate to="/" replace />
   if (!state.roomCode) return <main className="grid min-h-screen place-items-center"><div className="rounded-2xl bg-white p-6 font-bold shadow-pop">Connecting to room {code}…</div></main>
   const submitGuess = () => {
     const value = guess.trim()
     if (!value || submittingGuess || isArtist || current?.guessed || state.phase !== 'drawing') return
     setSubmittingGuess(true); setGuessError('')
-    sync.socket.timeout(5000).emit('submit-guess', { guess: value.slice(0, 120), state: sync.encodedState() }, (error: Error | null, result?: { accepted: boolean; correct: boolean; reason?: string }) => {
+    sync.socket.timeout(5000).emit('submit-guess', { guess: value.slice(0, 120), snapshot: sync.guessState() }, (error: Error | null, result?: { accepted: boolean; correct: boolean; reason?: string }) => {
       setSubmittingGuess(false)
       if (error || !result?.accepted) return setGuessError(result?.reason || 'Could not submit. Try again.')
       setGuess('')
@@ -306,4 +325,20 @@ function Room() {
   </main>
 }
 
-export default function App() { return <BrowserRouter><Routes><Route path="/" element={<Home />} /><Route path="/room/:code" element={<Room />} /><Route path="*" element={<Navigate to="/" />} /></Routes></BrowserRouter> }
+function RoomGate() {
+  const { code = '' } = useParams()
+  const params = new URLSearchParams(location.search)
+  const takeover = params.get('takeover') === '1'
+  const [session] = useState<{ identity: RoomIdentity | null; restoring: boolean }>(() => {
+    const saved = savedRoomIdentity(code)
+    if (saved && (saved.tabId === browserTabId() || params.get('resume') === '1')) return { identity: saveRoomIdentity(code, saved), restoring: true }
+    if (saved) return { identity: null, restoring: false }
+    const name = cleanName(params.get('name') || '')
+    if (!name || params.get('join') !== '1') return { identity: null, restoring: false }
+    return { identity: saveRoomIdentity(code, { id: crypto.randomUUID(), name, avatar: Math.floor(Math.random() * AVATARS.length) }), restoring: false }
+  })
+  if (!session.identity) return <Navigate to={`/?room=${code}`} replace />
+  return <Room identity={session.identity} takeover={takeover} restoring={session.restoring} />
+}
+
+export default function App() { return <BrowserRouter><Routes><Route path="/" element={<Home />} /><Route path="/room/:code" element={<RoomGate />} /><Route path="*" element={<Navigate to="/" />} /></Routes></BrowserRouter> }

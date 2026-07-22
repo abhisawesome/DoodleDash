@@ -12,6 +12,8 @@ const instanceId = crypto.randomUUID()
 const roomPattern = /^[A-HJ-NP-Z2-9]{6}$/
 const blockedWords = /\b(fuck|shit|bitch|cunt)\b/gi
 const normalizeGuess = (value: string) => value.trim().toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]+/gu, '')
+type GuessPlayer = { id: string; name: string; score: number; guessed: boolean; spectator: boolean }
+type GuessState = { phase?: unknown; word?: unknown; artistId?: unknown; players?: unknown; turnEndsAt?: unknown; round?: unknown; artistIndex?: unknown }
 const snapshotStore = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN ? Upstash.fromEnv() : null
 const redisTimeout = <T,>(operation: Promise<T>, ms = 1500) => Promise.race<T>([
   operation,
@@ -112,15 +114,26 @@ io.use((socket, next) => {
   if (!roomPattern.test(roomCode) || !playerId || playerId.length > 80) return next(new Error('Invalid room'))
   socket.data.roomCode = roomCode
   socket.data.playerId = playerId
+  socket.data.takeover = socket.handshake.auth.takeover === true
   next()
 })
 
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   const room = socket.data.roomCode as string
   const playerId = socket.data.playerId as string
   const docPromise = documentFor(room)
-  void socket.join(room)
+  if (socket.data.takeover) {
+    const existing = await io.in(room).fetchSockets()
+    existing.filter((peer) => peer.data.playerId === playerId && peer.id !== socket.id).forEach((peer) => peer.disconnect(true))
+  }
+  await socket.join(room)
   socket.to(room).emit('peer-joined', playerId)
+
+  const broadcastPresence = async () => {
+    const sockets = await io.in(room).fetchSockets()
+    const online = Array.from(new Set(sockets.map((peer) => String(peer.data.playerId || '')).filter(Boolean)))
+    io.to(room).emit('presence', online)
+  }
 
   socket.on('sync-request', async (stateVector: unknown) => {
     if (typeof stateVector !== 'string' || stateVector.length > 1_000_000) return
@@ -131,9 +144,7 @@ io.on('connection', (socket) => {
     } catch { socket.disconnect(true) }
   })
   socket.on('client-ready', async () => {
-    const sockets = await io.in(room).fetchSockets()
-    const online = Array.from(new Set(sockets.map((peer) => String(peer.data.playerId || '')).filter(Boolean)))
-    io.to(room).emit('presence', online)
+    await broadcastPresence()
   })
 
   socket.on('y-update', async (payload: unknown) => {
@@ -150,20 +161,60 @@ io.on('connection', (socket) => {
   socket.on('submit-guess', async (payload: unknown, acknowledge?: (result: { accepted: boolean; correct: boolean; reason?: string }) => void) => {
     const guess = typeof payload === 'string' ? payload : payload && typeof payload === 'object' && 'guess' in payload ? (payload as { guess?: unknown }).guess : undefined
     const clientState = payload && typeof payload === 'object' && 'state' in payload ? (payload as { state?: unknown }).state : undefined
-    if (typeof guess !== 'string' || guess.length > 120 || (clientState !== undefined && (typeof clientState !== 'string' || clientState.length > 1_000_000))) return acknowledge?.({ accepted: false, correct: false, reason: 'Invalid guess' })
+    const clientSnapshot = payload && typeof payload === 'object' && 'snapshot' in payload ? (payload as { snapshot?: unknown }).snapshot : undefined
+    if (typeof guess !== 'string' || guess.length > 120 || (clientState !== undefined && (typeof clientState !== 'string' || clientState.length > 1_000_000)) || (clientSnapshot !== undefined && (!clientSnapshot || typeof clientSnapshot !== 'object'))) return acknowledge?.({ accepted: false, correct: false, reason: 'Invalid guess' })
     try {
       const doc = await docPromise
-      if (typeof clientState === 'string') Y.applyUpdate(doc, base64ToBytes(clientState), socket.id)
+      const before = Y.encodeStateVector(doc)
+      let submitted = clientSnapshot as GuessState | null
+      if (typeof clientState === 'string') {
+        const update = base64ToBytes(clientState)
+        const submittedDoc = new Y.Doc()
+        Y.applyUpdate(submittedDoc, update)
+        submitted = submittedDoc.getMap('game').toJSON() as GuessState
+        submittedDoc.destroy()
+        Y.applyUpdate(doc, update, socket.id)
+      }
       const state = doc.getMap('game')
-      const phase = state.get('phase')
-      const word = state.get('word')
-      const players = (state.get('players') || []) as Array<{ id: string; name: string; score: number; guessed: boolean; spectator: boolean }>
-      const player = players.find((item) => item.id === playerId)
+      let phase = state.get('phase')
+      let word = state.get('word')
+      let players = (state.get('players') || []) as GuessPlayer[]
+      let player = players.find((item) => item.id === playerId)
+
+      // A receiving instance can occasionally retain an older top-level Y.Map
+      // value after concurrent whole-array updates. Reconcile only to a live,
+      // newer drawing turn (or the same drawing turn when this instance is
+      // missing the player); never resurrect a completed turn.
+      const submittedPlayers = Array.isArray(submitted?.players) ? submitted.players as GuessPlayer[] : []
+      const submittedPlayer = submittedPlayers.find((item) => item.id === playerId)
+      const submittedRound = typeof submitted?.round === 'number' ? submitted.round : 0
+      const submittedArtistIndex = typeof submitted?.artistIndex === 'number' ? submitted.artistIndex : -1
+      const serverRound = typeof state.get('round') === 'number' ? state.get('round') as number : 0
+      const serverArtistIndex = typeof state.get('artistIndex') === 'number' ? state.get('artistIndex') as number : -1
+      const submittedTurn = submittedRound * 100 + submittedArtistIndex
+      const serverTurn = serverRound * 100 + serverArtistIndex
+      const sameLiveTurn = phase === 'drawing' && submitted?.phase === 'drawing' && submittedTurn === serverTurn && submitted?.artistId === state.get('artistId') && submitted?.word === word && !player
+      const newerTurn = submittedTurn > serverTurn || (submittedTurn === serverTurn && phase === 'choosing')
+      const canReconcile = submitted?.phase === 'drawing' && typeof submitted.word === 'string' && typeof submitted.artistId === 'string' && typeof submitted.turnEndsAt === 'number' && submitted.turnEndsAt > Date.now() && submittedPlayer && submittedPlayer.id !== submitted.artistId && !submittedPlayer.guessed && !submittedPlayer.spectator && (sameLiveTurn || newerTurn)
+      if (canReconcile) {
+        doc.transact(() => {
+          state.set('phase', submitted!.phase)
+          state.set('word', submitted!.word)
+          state.set('artistId', submitted!.artistId)
+          state.set('players', submittedPlayers)
+          state.set('turnEndsAt', submitted!.turnEndsAt)
+          state.set('round', submittedRound)
+          state.set('artistIndex', submittedArtistIndex)
+        }, socket.id)
+        phase = state.get('phase')
+        word = state.get('word')
+        players = (state.get('players') || []) as GuessPlayer[]
+        player = players.find((item) => item.id === playerId)
+      }
       if (phase !== 'drawing' || typeof word !== 'string' || !player || player.id === state.get('artistId') || player.guessed || player.spectator) return acknowledge?.({ accepted: false, correct: false, reason: 'Guessing is not available' })
       const value = guess.trim().replace(blockedWords, '••••')
       if (!value) return acknowledge?.({ accepted: false, correct: false, reason: 'Enter a guess' })
       const correct = normalizeGuess(value) === normalizeGuess(word)
-      const before = Y.encodeStateVector(doc)
       doc.transact(() => {
         if (correct) state.set('players', players.map((item) => item.id === playerId ? { ...item, guessed: true, score: item.score + 100 } : item))
         const chat = (state.get('chat') || []) as Array<Record<string, unknown>>
@@ -178,7 +229,11 @@ io.on('connection', (socket) => {
       acknowledge?.({ accepted: false, correct: false, reason: 'Could not submit guess' })
     }
   })
-  socket.on('disconnect', () => socket.to(room).emit('peer-left', playerId))
+  socket.on('disconnect', async () => {
+    const sockets = await io.in(room).fetchSockets()
+    if (!sockets.some((peer) => peer.data.playerId === playerId)) socket.to(room).emit('peer-left', playerId)
+    await broadcastPresence()
+  })
 })
 
 export default httpServer

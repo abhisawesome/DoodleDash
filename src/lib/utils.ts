@@ -9,24 +9,38 @@ export function makeRoomCode(length = 6) {
   return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('')
 }
 
-export function playerId() {
-  // sessionStorage is copied when a room is opened in a new tab, which used to
-  // make both tabs impersonate the same player (and both see the word chooser).
-  // window.name is tab-specific and survives reloads, so namespace the saved
-  // player identity by a stable ID for this browser tab.
+export type RoomIdentity = { id: string; name: string; avatar: number; tabId: string; expiresAt: number }
+
+export function browserTabId() {
   const prefix = 'doodledash-tab:'
-  const reloading = performance.getEntriesByType('navigation').some((entry) => (entry as PerformanceNavigationTiming).type === 'reload')
   const tabId = window.name.startsWith(prefix) ? window.name.slice(prefix.length) : crypto.randomUUID()
   if (!window.name.startsWith(prefix)) window.name = `${prefix}${tabId}`
-  const storageKey = `doodledash-player-id:${tabId}`
-  const saved = sessionStorage.getItem(storageKey) || (reloading ? sessionStorage.getItem('doodledash-player-id') : null)
-  if (saved) {
-    sessionStorage.setItem(storageKey, saved)
-    sessionStorage.setItem('doodledash-player-id', saved)
-    return saved
-  }
-  const id = crypto.randomUUID()
-  sessionStorage.setItem(storageKey, id)
-  sessionStorage.setItem('doodledash-player-id', id)
-  return id
+  return tabId
+}
+
+const identityKey = (roomCode: string) => `doodledash-room-identity:${roomCode.toUpperCase()}`
+
+export function savedRoomIdentity(roomCode: string) {
+  try {
+    const identity = JSON.parse(localStorage.getItem(identityKey(roomCode)) || 'null') as RoomIdentity | null
+    if (!identity?.id || !identity.name || identity.expiresAt <= Date.now()) {
+      localStorage.removeItem(identityKey(roomCode))
+      return null
+    }
+    return identity
+  } catch { return null }
+}
+
+export function saveRoomIdentity(roomCode: string, identity: Omit<RoomIdentity, 'tabId' | 'expiresAt'>) {
+  const saved = { ...identity, tabId: browserTabId(), expiresAt: Date.now() + 15 * 60_000 }
+  try { localStorage.setItem(identityKey(roomCode), JSON.stringify(saved)) } catch { /* Fall back to this page's in-memory identity. */ }
+  return saved
+}
+
+export function refreshRoomIdentity(roomCode: string, identity: RoomIdentity) {
+  return saveRoomIdentity(roomCode, identity)
+}
+
+export function clearRoomIdentity(roomCode: string) {
+  try { localStorage.removeItem(identityKey(roomCode)) } catch { /* Storage may be unavailable. */ }
 }

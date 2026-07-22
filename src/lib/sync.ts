@@ -21,9 +21,9 @@ export class RoomSync {
     this.socket.emit('sync-request', bytesToBase64(Y.encodeStateVector(this.doc)))
   }
 
-  constructor(roomCode: string, identity: { id: string; name: string; avatar: number }) {
+  constructor(roomCode: string, identity: { id: string; name: string; avatar: number }, takeover = false) {
     const url = import.meta.env.VITE_SOCKET_URL || window.location.origin
-    this.socket = io(url, { path: '/api/ws', transports: ['websocket'], auth: { roomCode, ...identity } })
+    this.socket = io(url, { path: '/api/ws', transports: ['websocket'], auth: { roomCode, ...identity, takeover } })
     this.doc.on('update', (update: Uint8Array) => {
       if (!this.remote) this.socket.emit('y-update', bytesToBase64(update))
     })
@@ -49,7 +49,10 @@ export class RoomSync {
     })
   }
 
-  encodedState() { return bytesToBase64(Y.encodeStateAsUpdate(this.doc)) }
+  guessState() {
+    const game = this.state.toJSON()
+    return { phase: game.phase, word: game.word, artistId: game.artistId, players: game.players, turnEndsAt: game.turnEndsAt, round: game.round, artistIndex: game.artistIndex }
+  }
 
   destroy() { if (this.syncTimer) window.clearInterval(this.syncTimer); this.socket.disconnect(); this.doc.destroy() }
 }
